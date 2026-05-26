@@ -21,7 +21,8 @@ func main() void {
     } else {
         result = 1;
     }
-    std::io::print(result); // it's not working yet
+    msg: str = result as str; // casting
+    std::io::print(msg); 
 }
 ```
 ## Documentation
