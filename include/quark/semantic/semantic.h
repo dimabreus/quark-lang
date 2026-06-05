@@ -1,8 +1,11 @@
 #pragma once
 
+#include <optional>
 #include <vector>
 
 #include "quark/support/compiler_context.h"
+#include "quark/semantic/attributes.h"
+#include "quark/modules/module.h"
 
 namespace quark::sm {
 
@@ -12,13 +15,14 @@ class SemanticAnalyzer {
                   std::vector<std::string> ns)
     : ctx(ctx), module_namespace(std::move(ns)) {}
 
-        void analyze(const std::vector<ast::Stmt*>& stmts);
+        void analyze(const std::vector<ast::Stmt*>& stmts, modules::Module* mod = nullptr);
 
     private:
 
         CompilerContext& ctx;
         const ast::Type* current_function_return_type = nullptr;
         std::vector<std::string> module_namespace;
+        modules::Module* current_module = nullptr;
         bool is_in_region = false;
 
         void analyze_stmt(const ast::Stmt* stmt);
@@ -36,7 +40,8 @@ class SemanticAnalyzer {
         void analyze_if(const ast::IfStmt& stmt);
         void analyze_while(const ast::WhileStmt& stmt);
         void analyze_region(const ast::RegionStmt& reg);
-        void analyze_attribute(const ast::Attribute& attribute);
+        void analyze_attribute(const ast::Attribute& attribute, const attrs::AttributeTarget target);
+        void check_visibility(const symb_t::Symbol& sym, const std::string& context);
 
         const ast::Type* analyze_int(const ast::IntExpr&);
         const ast::Type* analyze_string(const ast::StringExpr&);
@@ -48,6 +53,7 @@ class SemanticAnalyzer {
         const ast::Type* analyze_namespace(const ast::NamespaceExpr&);
         const ast::Type* analyze_cast(const ast::CastExpr&);
         const ast::Type* analyze_index(const ast::IndexExpr&);
+        std::optional<int64_t> try_eval_const(const ast::Expr* expr);
     };
 
 } // namespace quark::sm

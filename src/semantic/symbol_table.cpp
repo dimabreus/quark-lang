@@ -69,7 +69,17 @@ namespace quark::symb_t {
         return current;
     }
 
+    void SymbolTable::set_current_module_ns(const std::vector<std::string>& ns) {
+        current_module_ns = ns;
+    }
+
+    const std::vector<std::string>& SymbolTable::get_current_module_ns() const {
+        return current_module_ns;
+    }
+
     bool SymbolTable::declare_symbol(const std::string& name, Symbol symbol) {
+        symbol.owning_module = current_module_ns;
+
         if (!scopes.empty()) {
             auto& current = scopes.back();
 
@@ -161,6 +171,7 @@ namespace quark::symb_t {
             // upgrade forward decl -> definition
             if (!fs->is_defined && sym.is_defined) {
                 fs->is_defined = true;
+                existing->attributes = fn.attributes;
             }
 
             return true;
@@ -168,7 +179,8 @@ namespace quark::symb_t {
 
         return declare_symbol(fn.name, Symbol{
             fn.name,
-            sym
+            sym,
+            fn.attributes
         });
     }
 

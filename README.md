@@ -12,9 +12,9 @@ The compiler currently targets fasm as a backend.
 ```qk
 load "std/io.qk";
 
-func main() void {
-    value: int = 10;
-    mut result: int = value + 2;
+func main() i32 {
+    value: i32 = 10;
+    mut result: i32 = value + 2;
 
     if (value > 5) {
         result = 0;
@@ -22,7 +22,8 @@ func main() void {
         result = 1;
     }
     msg: str = result as str; // casting
-    std::io::print(msg); 
+    std::io::print(msg);
+    return 0;
 }
 ```
 ## Documentation

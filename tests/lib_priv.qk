@@ -1,0 +1,7 @@
+@private func secret() i32 {
+    return 42;
+}
+
+func public_fn() i32 {
+    return secret();
+}

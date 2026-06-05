@@ -20,6 +20,7 @@ add_library(libquark
     src/modules/modules.cpp
     src/backend/fasmcodegen.cpp
     src/utils/file_manager.cpp
+    src/utils/options.cpp
     src/linker/linker.cpp
     src/support/type_context.cpp
     src/support/symbol_path.cpp

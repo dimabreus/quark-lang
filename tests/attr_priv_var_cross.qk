@@ -1,0 +1,5 @@
+load "tests/lib_priv_var.qk";
+
+@entry func main() i32 {
+    return tests::lib_priv_var::x;
+}

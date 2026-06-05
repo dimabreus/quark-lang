@@ -19,7 +19,7 @@
 | str  | 8    | string (pointer)   |
 | *T   | 8    | pointer to T       |
 
-Integer literals are i32 by default. Float literals are f64 by default.
+Integer literals are i32 by default. Float literals are f64 by default. Boolean literals `true` and `false` are `bool`.
 
 ---
 
@@ -168,6 +168,99 @@ std::io::exit(0);
 ```
 extern func print(text: str) void;
 ```
+---
+
+## Attributes
+
+Attributes annotate declarations with extra semantics. Syntax: `@name` before a declaration.
+
+If the attribute takes arguments: `@name(expr1, expr2)`.
+
+Supported attributes:
+
+| Attribute  | Targets                              | Args | Description                                          |
+|------------|--------------------------------------|------|------------------------------------------------------|
+| `@entry`   | function                             | 0    | Mark function as program entry point                 |
+| `@init`    | variable                             | 0    | Suppress uninitialized variable check                |
+| `@guard`   | variable                             | 1    | Block assignment if guard condition is false         |
+| `@public`  | function / variable / field / struct | 0    | Make symbol visible outside the module               |
+| `@private` | function / variable / field / struct | 0    | Hide symbol from other modules                       |
+| `@hide`    | module                               | 0    | Make all module symbols private by default           |
+
+### `@entry`
+
+The function with `@entry` is the program entry point (replaces `main` by name).
+
+```
+@entry func start() i32 {
+    return 0;
+}
+```
+
+If no `@entry` is found, the linker falls back to a function named `main`.
+
+### `@init`
+
+Declares a variable without an initializer, promising the compiler it will be initialized before use.
+
+```
+@init x: i32;
+foo(x);                  // no "uninitialized variable" error
+```
+
+Without `@init`, an immutable variable without a value is a compile error.
+
+### `@guard`
+
+Protects a variable from being assigned when the guard condition is false. The guard expression is evaluated at compile time; a constant `0` or `false` blocks all assignments.
+
+```
+@guard(0) mut x: i32;
+x = 42;              // error: assignment blocked by guard
+```
+
+```
+@guard(1) mut x: i32;
+x = 42;              // ok
+```
+
+The guard expression may also reference an immutable variable with a constant initializer:
+
+```
+cond: i32 = 0;
+@guard(cond) mut x: i32;
+x = 42;              // error: guard(cond) evaluates to false
+```
+
+### `@private`
+
+Restricts access to the declaring module. Other modules cannot call or reference the symbol.
+
+```
+@private func helper() i32 {
+    return 42;
+}
+
+func public_fn() i32 {
+    return helper();     // ok — same module
+}
+```
+
+Access from another module produces: `Cannot access private symbol`.
+
+### `@public`
+
+Explicitly marks a symbol as accessible from other modules. Useful inside `@hide` modules.
+
+### `@hide`
+
+Applied to a module (place `@hide` on any top-level declaration). Makes all symbols in the module private by default; only symbols with `@public` remain accessible from outside.
+
+```
+@hide func internal() i32 { return 1; }
+@public func api() i32    { return 2; }
+```
+
 ---
 ## Regions & Pointers. Arrays
 Quark has region memory system. Pointers can only be declared in ```region{}```. If a region dies, all pointers are destroyed.

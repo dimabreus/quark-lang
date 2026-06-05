@@ -1,0 +1,7 @@
+@private func helper() i32 {
+    return 42;
+}
+
+@entry func main() i32 {
+    return helper();
+}

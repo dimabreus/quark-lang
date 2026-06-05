@@ -137,6 +137,11 @@ Token Parser::peek(int n) {
 // Statements
 
 ast::Stmt Parser::parse_statement() {
+    std::vector<ast::Attribute> attrs;
+    if (check(TOKEN_AT)) {
+        attrs = parse_attributes();
+    }
+
     if (match(TOKEN_RETURN)) {
         return ast::Stmt{ ast::ReturnStmt{ parse_return() } };
     }
@@ -151,15 +156,21 @@ ast::Stmt Parser::parse_statement() {
 
     if (match(TOKEN_EXTERN)) {
         expect(TOKEN_FUNC, "Expected 'func' after extern");
-        return ast::Stmt{ ast::FuncStmt{ parse_func(true) } };
+        auto func = parse_func(true);
+        func.attributes = std::move(attrs);
+        return ast::Stmt{ std::move(func) };
     }
 
     if (match(TOKEN_FUNC)) {
-        return ast::Stmt{ ast::FuncStmt{ parse_func(false) } };
+        auto func = parse_func(false);
+        func.attributes = std::move(attrs);
+        return ast::Stmt{ std::move(func) };
     }
 
     if (match(TOKEN_STRUCT)) {
-        return ast::Stmt{ ast::StructDecl{ parse_struct_decl() } };
+        auto decl = parse_struct_decl();
+        decl.attributes = std::move(attrs);
+        return ast::Stmt{ std::move(decl) };
     }
 
     if (match(TOKEN_NAMESPACE)) {
@@ -175,7 +186,9 @@ ast::Stmt Parser::parse_statement() {
     }
 
     if (is_var_decl()) {
-        return ast::Stmt{ parse_var_decl() };
+        auto var = parse_var_decl();
+        var.attributes = std::move(attrs);
+        return ast::Stmt{ std::move(var) };
     }
 
     ast::Expr* expr = parse_expr(0);
@@ -212,7 +225,6 @@ ast::VarDecl Parser::parse_var_decl() {
         }
     }
 
-    ret.attributes = parse_attributes();
     expect(TOKEN_SEMICOLON, "Expected ';' after declaration");
 
     return ret;
@@ -229,6 +241,7 @@ ast::StructDecl Parser::parse_struct_decl() {
     while (!check(TOKEN_RBRACE) && !check(TOKEN_EOF)) {
         ast::StructField field;
 
+        field.attributes = parse_attributes();
         field.is_mut = match(TOKEN_MUT);
 
         Token field_name = expect(TOKEN_IDENT, "Expected field name");
@@ -242,15 +255,12 @@ ast::StructDecl Parser::parse_struct_decl() {
             field.default_value = parse_expr(0);
         }
 
-        field.attributes = parse_attributes();
-
         expect(TOKEN_SEMICOLON, "Expected ';' after field");
 
         ret.fields.push_back(std::move(field));
     }
 
     expect(TOKEN_RBRACE, "Expected '}' after struct body");
-    ret.attributes = parse_attributes();
     expect(TOKEN_SEMICOLON, "Expected ';' after struct body");
 
     return ret;
@@ -258,16 +268,21 @@ ast::StructDecl Parser::parse_struct_decl() {
 
 std::vector<ast::Attribute> Parser::parse_attributes() {
     std::vector<ast::Attribute> attrs;
-
-    while (match(TOKEN_AT)) {
-        Token name = expect(TOKEN_IDENT, "Expected attribute name");
-
+    while (check(TOKEN_AT)) {
+        advance();
         ast::Attribute attr;
-        attr.name = name.text;
-
+        attr.name = expect(TOKEN_IDENT, "Expected attribute name").text;
+        if (match(TOKEN_LPAREN)) {
+            while (!check(TOKEN_RPAREN) && !check(TOKEN_EOF)){
+                attr.args.push_back(parse_expr(0));
+                if (!check(TOKEN_RPAREN)) {
+                    expect(TOKEN_COMMA, "Expected ',' after attribute argument");
+                }
+            }
+            expect(TOKEN_RPAREN, "Expected ')' after attribute arguments");
+        }
         attrs.push_back(std::move(attr));
     }
-
     return attrs;
 }
 
@@ -455,6 +470,14 @@ ast::Expr* Parser::parse_prefix() {
 
     if (match(TOKEN_STRING)) {
         return make_expr(ctx, ast::StringExpr{ std::string(previous.text) }, previous.loc);
+    }
+
+    if (match(TOKEN_TRUE)) {
+        return make_expr(ctx, ast::BoolExpr{ true }, previous.loc);
+    }
+
+    if (match(TOKEN_FALSE)) {
+        return make_expr(ctx, ast::BoolExpr{ false }, previous.loc);
     }
 
     if (match(TOKEN_IDENT)) {

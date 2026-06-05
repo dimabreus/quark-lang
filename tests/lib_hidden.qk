@@ -1,0 +1,7 @@
+@hide func internal_fn() i32 {
+    return 2;
+}
+
+@public func pub_fn() i32 {
+    return 1;
+}

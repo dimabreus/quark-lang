@@ -47,12 +47,16 @@ namespace {
     }
 
     const IRFunction* find_entry(const IRProgram& program) {
+        const IRFunction* fallback = nullptr;
         for (const auto& fn : program.functions) {
-            if (fn.name.ends_with("main")) {
+            if (fn.is_entry) {
                 return &fn;
             }
+            if (fn.name.ends_with("main")) {
+                fallback = &fn;
+            }
         }
-        return nullptr;
+        return fallback;
     }
       std::string string_label(uint32_t id) {
         return "str_" + std::to_string(id);

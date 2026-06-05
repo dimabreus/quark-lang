@@ -265,6 +265,14 @@ void IRGenerator::gen_function(const ast::FuncStmt& func) {
     current_func->temp_count = 0;
     current_func->is_extern = func.is_extern;
 
+    current_func->is_entry = false;
+    for (const auto& attr : func.attributes) {
+        if (attr.name == "entry") {
+            current_func->is_entry = true;
+            break;
+        }
+    }
+
     next_reg = 0;
     next_label = 0;
     next_local = 0;
@@ -570,6 +578,12 @@ uint32_t IRGenerator::gen_expr(const ast::Expr& expr) {
         [&](const ast::IntExpr& node) -> uint32_t {
             const uint32_t dst = new_reg();
             emit(IRLoadConst{ dst, node.value });
+            return dst;
+        },
+
+        [&](const ast::BoolExpr& node) -> uint32_t {
+            const uint32_t dst = new_reg();
+            emit(IRLoadConst{ dst, node.value ? 1 : 0 });
             return dst;
         },
 

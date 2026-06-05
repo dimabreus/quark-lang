@@ -52,7 +52,7 @@ int main(int argc, char **argv)
                 mod->namespace_path
             );
 
-            sem.analyze(mod->ast);
+            sem.analyze(mod->ast, mod);
             mod->analyzed = true;
         }
         // Linker validation

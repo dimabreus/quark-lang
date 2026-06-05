@@ -1,21 +1,35 @@
 #include "quark/linker/linker.h"
 
 namespace quark::linker{
-    const ast::FuncStmt* Linker::find_main() {
+
+namespace {
+    bool has_entry_attr(const ast::FuncStmt& func) {
+        for (const auto& attr : func.attributes) {
+            if (attr.name == "entry") return true;
+        }
+        return false;
+    }
+}
+
+    const ast::FuncStmt* Linker::find_entry() {
+        const ast::FuncStmt* fallback = nullptr;
         for (auto* mod : modules.ordered_modules()) {
             for (auto* stmt : mod->ast) {
                 if (auto* func = std::get_if<ast::FuncStmt>(&stmt->kind)){
-                    if (func->name == "main") { // TODO 
+                    if (has_entry_attr(*func)) {
                         return func;
+                    }
+                    if (func->name == "main") {
+                        fallback = func;
                     }
                 }
             }
         }
-        return nullptr;
+        return fallback;
     }
     void Linker::validate() {
-        if (!find_main()) {
-            utils::logger::fatal("entry point 'main' not found");
+        if (!find_entry()) {
+            utils::logger::fatal("entry point not found (add @entry or name it 'main')");
         }
     }
     Linker::Linker(modules::ModuleManager& m): modules(m){}

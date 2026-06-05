@@ -1,9 +1,11 @@
 #include "quark/semantic/semantic.h"
 #include "quark/support/compiler_context.h"
 #include "quark/support/symbol_path.h"
+#include "quark/semantic/attributes.h"
 
 #include "utils/logger.h"
 
+#include <optional>
 #include <unordered_set>
 #include <utility>
 #include <variant>
@@ -41,7 +43,44 @@ bool types_equal(const ast::Type* a, const ast::Type* b) {
 bool is_assignable(const ast::Type* to, const ast::Type* from) {
     return types_equal(to, from);
 }
+const attrs::AttributeInfo* find_attr(const std::string& name){
+	for(const auto& attr : attrs::attributes){
+		if(attr.first == name){
+			return &attr.second;
+		}
+	}
+	return nullptr;
+}
+inline bool has_flag(attrs::AttributeTarget value, attrs::AttributeTarget flag) {
+    return (static_cast<uint32_t>(value) &
+            static_cast<uint32_t>(flag)) != 0;
+}
+std::string attr_target_to_string(attrs::AttributeTarget target)
+{
+    if (target == attrs::AttributeTarget::None)
+        return "None";
 
+    std::string result;
+
+    auto append = [&](attrs::AttributeTarget flag, const char* name) {
+        if ((static_cast<uint32_t>(target) &
+             static_cast<uint32_t>(flag)) != 0)
+        {
+            if (!result.empty())
+                result += " | ";
+
+            result += name;
+        }
+    };
+
+    append(attrs::AttributeTarget::Function, "Function");
+    append(attrs::AttributeTarget::Variable, "Variable");
+    append(attrs::AttributeTarget::Field,    "Field");
+    append(attrs::AttributeTarget::Struct,   "Struct");
+    append(attrs::AttributeTarget::Module,   "Module");
+
+    return result;
+}
 struct ScopeGuard {
     quark::symb_t::SymbolTable& symbols;
 
@@ -164,12 +203,92 @@ const ast::VarExpr* get_root_var(const ast::Expr* expr) {
 
 } // namespace
 
-void SemanticAnalyzer::analyze(const std::vector<ast::Stmt*>& stmts) {
+namespace {
+    bool has_attr(const std::vector<ast::Attribute>& attrs, const std::string& name) {
+        for (const auto& a : attrs) {
+            if (a.name == name) return true;
+        }
+        return false;
+    }
+}
+
+void SemanticAnalyzer::analyze(const std::vector<ast::Stmt*>& stmts, modules::Module* mod) {
+    current_module = mod;
+    ctx.symbols.set_current_module_ns(module_namespace);
+
+    // Extract module-level attributes (like @hide) from top-level statements
+    if (current_module) {
+        for (auto* stmt : stmts) {
+            if (!stmt) continue;
+            std::visit(overloaded{
+                [&](ast::FuncStmt& fn) {
+                    for (auto it = fn.attributes.begin(); it != fn.attributes.end(); ) {
+                        if (it->name == "hide") {
+                            current_module->attributes.push_back(std::move(*it));
+                            it = fn.attributes.erase(it);
+                        } else {
+                            ++it;
+                        }
+                    }
+                },
+                [&](ast::StructDecl& str) {
+                    for (auto it = str.attributes.begin(); it != str.attributes.end(); ) {
+                        if (it->name == "hide") {
+                            current_module->attributes.push_back(std::move(*it));
+                            it = str.attributes.erase(it);
+                        } else {
+                            ++it;
+                        }
+                    }
+                },
+                [&](ast::VarDecl& var) {
+                    for (auto it = var.attributes.begin(); it != var.attributes.end(); ) {
+                        if (it->name == "hide") {
+                            current_module->attributes.push_back(std::move(*it));
+                            it = var.attributes.erase(it);
+                        } else {
+                            ++it;
+                        }
+                    }
+                },
+                [&](const auto&) {}
+            }, stmt->kind);
+        }
+    }
+
     for (const auto& part : module_namespace) {
         ctx.symbols.enter_namespace(part);
     }
 
     collect_declarations(stmts);
+
+    // If module has @hide, mark all non-@public symbols as private
+    if (current_module && has_attr(current_module->attributes, "hide")) {
+        for (auto* stmt : stmts) {
+            if (!stmt) continue;
+            std::visit(overloaded{
+                [&](const ast::FuncStmt& fn) {
+                    if (!has_attr(fn.attributes, "public")) {
+                        auto* sym = ctx.symbols.lookup(fn.name);
+                        if (sym) sym->attributes.push_back({"private", {}});
+                    }
+                },
+                [&](const ast::StructDecl& str) {
+                    if (!has_attr(str.attributes, "public")) {
+                        auto* sym = ctx.symbols.lookup(str.name);
+                        if (sym) sym->attributes.push_back({"private", {}});
+                    }
+                },
+                [&](const ast::VarDecl& var) {
+                    if (!has_attr(var.attributes, "public")) {
+                        auto* sym = ctx.symbols.lookup(var.name);
+                        if (sym) sym->attributes.push_back({"private", {}});
+                    }
+                },
+                [&](const auto&) {}
+            }, stmt->kind);
+        }
+    }
 
     for (auto* stmt : stmts) {
         analyze_stmt(stmt);
@@ -228,6 +347,23 @@ void SemanticAnalyzer::analyze_stmt(const ast::Stmt* stmt) {
     }, stmt->kind);
 }
 
+std::optional<int64_t> SemanticAnalyzer::try_eval_const(const ast::Expr* expr) {
+    if (!expr) return std::nullopt;
+    if (const auto* ie = std::get_if<ast::IntExpr>(&expr->kind)) {
+        return ie->value;
+    }
+    if (const auto* be = std::get_if<ast::BoolExpr>(&expr->kind)) {
+        return be->value ? 1 : 0;
+    }
+    if (const auto* ve = std::get_if<ast::VarExpr>(&expr->kind)) {
+        auto* sym = ctx.symbols.lookup(ve->name);
+        if (sym && std::holds_alternative<symb_t::VarSymbol>(sym->data)) {
+            return std::get<symb_t::VarSymbol>(sym->data).const_value;
+        }
+    }
+    return std::nullopt;
+}
+
 void SemanticAnalyzer::analyze_var_decl(const ast::VarDecl& var) {
     if (!var.type) {
         crash("Variable declaration missing type: " + var.name);
@@ -235,7 +371,12 @@ void SemanticAnalyzer::analyze_var_decl(const ast::VarDecl& var) {
     }
 
     for (const auto& attr : var.attributes) {
-        analyze_attribute(attr);
+        analyze_attribute(attr, attrs::AttributeTarget::Variable);
+    }
+
+    bool has_init = false;
+    for (const auto& attr : var.attributes) {
+        if (attr.name == "init") has_init = true;
     }
 
     if (var.value) {
@@ -246,13 +387,47 @@ void SemanticAnalyzer::analyze_var_decl(const ast::VarDecl& var) {
             crash("Type mismatch in variable initialization: " + var.name);
             return;
         }
-    } else if (!var.is_mut) {
+    } else if (!var.is_mut && !has_init) {
         crash("Immutable variable must be initialized: " + var.name);
         return;
     }
 
     if (!ctx.symbols.declare(var)) {
         crash("Variable already declared: " + var.name);
+    }
+
+    if (has_init && !var.value) {
+        ctx.symbols.mark_initialized(var.name);
+    }
+
+    if (var.value) {
+        if (const auto* ie = std::get_if<ast::IntExpr>(&var.value->kind)) {
+            auto* sym = ctx.symbols.lookup(var.name);
+            if (sym && std::holds_alternative<symb_t::VarSymbol>(sym->data)) {
+                auto& vs = std::get<symb_t::VarSymbol>(sym->data);
+                vs.const_value = ie->value;
+            }
+        } else if (const auto* be = std::get_if<ast::BoolExpr>(&var.value->kind)) {
+            auto* sym = ctx.symbols.lookup(var.name);
+            if (sym && std::holds_alternative<symb_t::VarSymbol>(sym->data)) {
+                auto& vs = std::get<symb_t::VarSymbol>(sym->data);
+                vs.const_value = be->value ? 1 : 0;
+            }
+        }
+    }
+
+    for (const auto& attr : var.attributes) {
+        if (attr.name == "guard" && !attr.args.empty()) {
+            const ast::Type* guard_type = analyze_expr(attr.args[0]);
+            if (!guard_type) continue;
+            auto guard_val = try_eval_const(attr.args[0]);
+            if (guard_val && *guard_val == 0) {
+                auto* sym = ctx.symbols.lookup(var.name);
+                if (sym && std::holds_alternative<symb_t::VarSymbol>(sym->data)) {
+                    std::get<symb_t::VarSymbol>(sym->data).guard_blocked = true;
+                }
+            }
+        }
     }
 }
 
@@ -272,7 +447,7 @@ void SemanticAnalyzer::analyze_struct_decl(const ast::StructDecl& str) {
         }
 
         for (const auto& attr : field.attributes) {
-            analyze_attribute(attr);
+            analyze_attribute(attr, attrs::AttributeTarget::Field);
         }
 
         if (field.default_value) {
@@ -322,6 +497,10 @@ void SemanticAnalyzer::analyze_func(const ast::FuncStmt& func) {
     if (func.is_extern && func.body) {
         crash("Extern function cannot have a body: " + func.name);
         return;
+    }
+
+    for (const auto& attr : func.attributes) {
+        analyze_attribute(attr, attrs::AttributeTarget::Function);
     }
 
     if (!func.return_type) {
@@ -394,9 +573,33 @@ void SemanticAnalyzer::analyze_region(const ast::RegionStmt& reg) {
     is_in_region = false;
 }
 
-void SemanticAnalyzer::analyze_attribute(const ast::Attribute& attribute) {
-    (void)attribute;
-    // TODO
+void SemanticAnalyzer::check_visibility(const symb_t::Symbol& sym, const std::string& context) {
+    if (has_attr(sym.attributes, "private") && sym.owning_module != module_namespace) {
+        crash("Cannot access private symbol '" + sym.name + "' from " + context);
+    }
+}
+
+void SemanticAnalyzer::analyze_attribute(const ast::Attribute& attr, const attrs::AttributeTarget target) {
+	auto* it = find_attr(attr.name);
+
+	if(it == nullptr){
+		crash("Attribute: '@" + attr.name + "' not found");
+	}
+	if(!has_flag(it->targets, target)){
+		crash("Attribute: '@" + attr.name + "' has incorrect targets: " + attr_target_to_string(target)
+				+ ". Expected: " + attr_target_to_string(it->targets));
+	}
+
+	if(attr.args.size() > it->max_args){
+		crash("Expected '" + std::to_string(it->max_args)
+                                  + "' count of args for '@" + attr.name + "' attribute."
+                                  + "Got: '" + std::to_string(attr.args.size()) );
+	}
+	else if(attr.args.size() < it->min_args){
+		crash("Expected '" + std::to_string(it->min_args) 
+				+ "' count of args for '@" + attr.name + "' attribute." 
+				+ "Got: '" + std::to_string(attr.args.size()) );
+	}
 }
 
 const ast::Type* SemanticAnalyzer::analyze_expr(ast::Expr* expr) {
@@ -405,6 +608,9 @@ const ast::Type* SemanticAnalyzer::analyze_expr(ast::Expr* expr) {
     const ast::Type* ty = std::visit(overloaded{
         [&](const ast::IntExpr&) -> const ast::Type* {
             return ctx.types.get_builtin(TypeKind::I32);
+        },
+        [&](const ast::BoolExpr&) -> const ast::Type* {
+            return ctx.types.get_builtin(TypeKind::Bool);
         },
         [&](const ast::FloatExpr&) -> const ast::Type* {
             return ctx.types.get_builtin(TypeKind::F64);
@@ -468,6 +674,8 @@ const ast::Type* SemanticAnalyzer::analyze_var(const ast::VarExpr& var) {
         return nullptr;
     }
 
+    check_visibility(*sym, module_namespace.empty() ? "::" : support::join_namespace(module_namespace));
+
     const ast::Type* type = symbol_type(*sym);
     if (!type) {
         crash("Symbol is not a value: " + var.name);
@@ -494,6 +702,8 @@ const ast::Type* SemanticAnalyzer::resolve_lvalue(const ast::Expr* expr) {
             crash("Undefined variable: " + var->name);
             return nullptr;
         }
+
+        check_visibility(*sym, module_namespace.empty() ? "::" : support::join_namespace(module_namespace));
 
         if (!symbol_is_mutable(*sym)) {
             crash("Cannot assign to immutable variable: " + var->name);
@@ -559,6 +769,11 @@ const ast::Type* SemanticAnalyzer::analyze_assign(const ast::AssignExpr& asg) {
 
     if (const auto* root = get_root_var(asg.target)) {
         if (auto* sym = ctx.symbols.lookup(root->name)) {
+            if (auto* vs = std::get_if<symb_t::VarSymbol>(&sym->data)) {
+                if (vs->guard_blocked) {
+                    crash("Assignment to guarded variable '" + root->name + "' is blocked by guard condition");
+                }
+            }
             mark_symbol_initialized(*sym);
         }
     }
@@ -643,6 +858,8 @@ const ast::Type* SemanticAnalyzer::analyze_call(const ast::CallExpr& call) {
         return nullptr;
     }
 
+    check_visibility(*sym, support::join_namespace(path));
+
     auto* fn = std::get_if<symb_t::FuncSymbol>(&sym->data);
     if (!fn) {
         crash("Callee is not a function: " + support::join_namespace(path));
@@ -717,6 +934,8 @@ const ast::Type* SemanticAnalyzer::analyze_namespace(const ast::NamespaceExpr& n
         crash("Undefined qualified symbol");
         return nullptr;
     }
+
+    check_visibility(*sym, support::join_namespace(path));
 
     if (auto* vt = std::get_if<symb_t::VarSymbol>(&sym->data)) {
         return vt->type;

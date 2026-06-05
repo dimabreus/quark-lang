@@ -32,6 +32,8 @@ namespace quark{
         TOKEN_EXTERN,
         TOKEN_AS,
         TOKEN_REGION,
+        TOKEN_TRUE,
+        TOKEN_FALSE,
 
         // types
         TOKEN_VOID,

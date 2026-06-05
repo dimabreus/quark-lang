@@ -1,0 +1,8 @@
+func identity(v: i32) i32 {
+    return v;
+}
+
+@entry func main() i32 {
+    @init x: i32;
+    return identity(x);
+}

@@ -6,7 +6,7 @@ namespace quark::linker{
         private:
             modules::ModuleManager& modules;
 
-            const ast::FuncStmt* find_main();
+            const ast::FuncStmt* find_entry();
         public:
             void validate();
 

@@ -55,6 +55,10 @@ namespace quark::ast {
         int value;
     };
 
+    struct BoolExpr {
+        bool value;
+    };
+
     struct FloatExpr {
         double value;
     };
@@ -126,6 +130,7 @@ namespace quark::ast {
 
     using ExprKind = std::variant<
         IntExpr,
+        BoolExpr,
         FloatExpr,
         StringExpr,
         VarExpr,
@@ -205,9 +210,11 @@ namespace quark::ast {
         bool has_body;
 
         Block* body;
+        std::vector<Attribute> attributes;
     };
     struct Attribute { 
-        std::string name; // TODO: Checks in semantic 
+        std::string name;  
+        std::vector<Expr*> args; 
     };
     struct NamespaceStmt { 
         std::string name; 

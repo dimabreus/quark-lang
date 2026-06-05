@@ -24,6 +24,7 @@ struct Module {
     std::string source;
 
     std::vector<ast::Stmt*> ast;
+    std::vector<ast::Attribute> attributes;
     std::vector<std::string> imports;
     std::vector<std::string> namespace_path;
     symb_t::Namespace* ns = nullptr;

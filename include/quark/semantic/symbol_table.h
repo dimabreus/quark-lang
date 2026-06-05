@@ -15,6 +15,8 @@ namespace quark::symb_t {
         const ast::Type* type;
         bool is_mut;
         bool is_initialized;
+        bool guard_blocked = false;
+        std::optional<int64_t> const_value;
     };
 
     struct FuncArgSymbol {
@@ -46,6 +48,7 @@ namespace quark::symb_t {
         std::string name;
         SymbolData data;
         std::vector<ast::Attribute> attributes;
+        std::vector<std::string> owning_module;
     };
 
     struct Namespace {
@@ -82,12 +85,16 @@ namespace quark::symb_t {
         void mark_initialized(const std::string& name);
         Namespace* create_namespace_path(const std::vector<std::string>& path);
 
+        void set_current_module_ns(const std::vector<std::string>& ns);
+        const std::vector<std::string>& get_current_module_ns() const;
+
     private:
         memory::Arena& arena;
         Namespace* global_namespace;
         Namespace* current_namespace = nullptr;
 
         std::vector<std::unordered_map<std::string, Symbol>> scopes;
+        std::vector<std::string> current_module_ns;
     };
 
 }
